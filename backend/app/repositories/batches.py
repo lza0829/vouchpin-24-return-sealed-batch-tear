@@ -4,23 +4,16 @@ from typing import Any
 
 
 def list_batches(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = [dict(r) for r in conn.execute("SELECT * FROM redeem_batches ORDER BY id DESC").fetchall()]
-    for row in rows:
-        row["ref_return_count"] = 0
-        row["return_link_day"] = None
-    return rows
+    # 退回关联/指纹完好性由服务层经 return_side 实时重算填充，此处不预置假值。
+    return [dict(r) for r in conn.execute("SELECT * FROM redeem_batches ORDER BY id DESC").fetchall()]
 
 
-def batch_fingerprint(conn: sqlite3.Connection, batch_id: int) -> dict[str, Any] | None:
+def get_batch(conn: sqlite3.Connection, batch_id: int) -> dict[str, Any] | None:
     row = conn.execute(
-        "SELECT id, business_day, status, fact_count, total_amount, sealed_at FROM redeem_batches WHERE id=?",
+        "SELECT * FROM redeem_batches WHERE id=?",
         (int(batch_id),),
     ).fetchone()
-    if not row:
-        return None
-    item = dict(row)
-    item["mutable_after_return"] = True
-    return item
+    return dict(row) if row else None
 
 
 def create_batch(conn: sqlite3.Connection, **fields: Any) -> int:

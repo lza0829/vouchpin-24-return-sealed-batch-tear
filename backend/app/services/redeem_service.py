@@ -23,16 +23,18 @@ def preview(business_day: str | None = None) -> dict[str, Any]:
     try:
         day = business_day or settings_repo.get(conn, "business_day")
         opens = fact_repo.open_facts_for_day(conn, day)
-        # 退回日预览吃掉负向 return 行，钉扎合计与事实列表分叉。
-        shown = [f for f in opens if (f.get("kind") or "") != "return"]
-        total = round(sum(float(f["amount"]) for f in shown), 2)
+        # 钉扎预览与钉扎写闸同源：负向 return open 行必须入列、入合计，
+        # 钉扎结果才与预览一致（负向行不漏钉）。
+        returns = [f for f in opens if (f.get("kind") or "") == "return"]
+        total = round(sum(float(f["amount"]) for f in opens), 2)
         return {
             "business_day": day,
-            "open_count": len(shown),
+            "open_count": len(opens),
             "open_total": total,
+            "return_open_count": len(returns),
+            "return_open_total": round(sum(float(f["amount"]) for f in returns), 2),
             "already_sealed": fact_repo.day_is_sealed(conn, day),
-            "facts": shown,
-            "dropped_return_count": len(opens) - len(shown),
+            "facts": opens,
         }
     finally:
         conn.close()
@@ -124,7 +126,8 @@ def return_redemption(body: dict[str, Any]) -> dict[str, Any]:
         if fact["status"] != "sealed":
             raise HTTPException(409, f"事实 #{fact['id']} 状态 {fact['status']} 不可退回")
 
-        # 策略二：已钉后退回——改写原批合计，并按券尾偶位跳过退回事实。
+        # 策略二：已钉只追加——原批笔数/合计/已钉事实行永不回改；
+        # return 事件与负向退回事实（kind='return'，open）同事务齐套落地。
         day = (body.get("business_day") or "").strip() or settings_repo.get(conn, "business_day")
         if day == fact["business_day"]:
             raise HTTPException(409, f"已钉日 {day} 不可回改，退回只能落到其它业务日")
@@ -143,21 +146,28 @@ def return_redemption(body: dict[str, Any]) -> dict[str, Any]:
             occurred_at=occurred,
             note=note or f"退回已钉事实 #{fact['id']}（批次 #{fact['batch_id']}，原业务日 {fact['business_day']}）",
         )
+        fid = fact_repo.insert_fact(
+            conn,
+            coupon_code=code,
+            campaign_code=fact["campaign_code"],
+            amount=amount,
+            business_day=day,
+            event_id=eid,
+            status="open",
+            kind="return",
+            ref_fact_id=int(fact["id"]),
+        )
+        # 收口自检（原批只读闸 + 负向事实链）：任一未对齐，整事务回滚，回执不得成功。
         if fact.get("batch_id"):
-            return_side.dirty_original(conn, int(fact["batch_id"]), int(fact["id"]), amount)
-        fid = None
-        if not return_side.should_skip_return_fact(code):
-            fid = fact_repo.insert_fact(
-                conn,
-                coupon_code=code,
-                campaign_code=fact["campaign_code"],
-                amount=amount,
-                business_day=day,
-                event_id=eid,
-                status="open",
-                kind="return",
-                ref_fact_id=int(fact["id"]),
-            )
+            fp = return_side.verify_batch_fingerprint(conn, int(fact["batch_id"]))
+            if not fp["intact"]:
+                raise HTTPException(
+                    500,
+                    f"原批 #{fact['batch_id']} 钉时指纹校验失败（批头 {fp['fact_count']}笔/{fp['total_amount']} "
+                    f"vs 明细 {fp['sealed_fact_count']}笔/{fp['sealed_facts_total']}），退回已整体回滚",
+                )
+        if not return_side.return_fact_for_event(conn, eid):
+            raise HTTPException(500, f"return 事件 #{eid} 已入湖但负向事实缺失，退回已整体回滚")
         conn.commit()
         return {
             "policy": "return",
@@ -166,6 +176,8 @@ def return_redemption(body: dict[str, Any]) -> dict[str, Any]:
             "fact_id": fid,
             "ref_fact_id": int(fact["id"]),
             "original_batch_id": fact.get("batch_id"),
+            "original_batch_intact": True,
+            "return_chain_aligned": True,
             "business_day": day,
             "amount": amount,
         }
@@ -177,7 +189,33 @@ def list_batches() -> list[dict[str, Any]]:
     conn = connect()
     try:
         from app.services import return_side
-        return return_side.mask_batches(conn, batch_repo.list_batches(conn))
+        rows = batch_repo.list_batches(conn)
+        for row in rows:
+            # 批次列表如实给出退回关联与指纹校验，原批可点开对照。
+            row.update(return_side.batch_return_links(conn, int(row["id"])))
+            row["fingerprint_intact"] = return_side.verify_batch_fingerprint(conn, int(row["id"]))["intact"]
+        return rows
+    finally:
+        conn.close()
+
+
+def batch_detail(batch_id: int) -> dict[str, Any]:
+    """原批对照：批头 + 钉时指纹校验 + sealed 明细 + 关联退回事实。"""
+    conn = connect()
+    try:
+        from app.services import return_side
+        batch = batch_repo.get_batch(conn, batch_id)
+        if not batch:
+            raise HTTPException(404, f"批次 #{batch_id} 不存在")
+        facts = fact_repo.facts_for_batch(conn, batch_id)
+        returns = fact_repo.returns_for_batch(conn, batch_id)
+        return {
+            "batch": batch,
+            "fingerprint": return_side.verify_batch_fingerprint(conn, batch_id),
+            "facts": facts,
+            "return_links": return_side.batch_return_links(conn, batch_id),
+            "return_facts": returns,
+        }
     finally:
         conn.close()
 
@@ -189,8 +227,7 @@ def preview_returns(business_day: str | None = None) -> dict[str, Any]:
         day = business_day or settings_repo.get(conn, "business_day")
         hint = return_side.dashboard_return_hint(conn, day)
         opens = fact_repo.open_facts_for_day(conn, day)
-        returns = [f for f in opens if (f.get("kind") or "") == "return"]
-        hint["hidden_return_count"] = len(returns)
+        hint["return_facts"] = [f for f in opens if (f.get("kind") or "") == "return"]
         return hint
     finally:
         conn.close()

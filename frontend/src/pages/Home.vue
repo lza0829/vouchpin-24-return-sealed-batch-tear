@@ -21,8 +21,11 @@ onMounted(load)
       <div class="stat"><div class="k">今日核销净额</div><div class="v ticket">{{ d.redeem_total_today }}</div></div>
       <div class="stat"><div class="k">日已钉扎</div><div class="v">{{ d.day_sealed ? '是' : '否' }}</div></div>
       <div class="stat"><div class="k">退回 open</div><div class="v">{{ d.return_open_count }}</div></div>
+      <div class="stat"><div class="k">退回 open 净额</div><div class="v ticket">{{ d.return_open_total }}</div></div>
+      <div class="stat"><div class="k">原批指纹</div><div class="v">{{ d.original_batch_intact ? '完好' : '异常' }}</div></div>
+      <div class="stat"><div class="k">负向事实链</div><div class="v">{{ d.return_chain_aligned ? '对齐' : '缺口' }}</div></div>
     </div>
-    <p class="msg" v-if="!err">合计只认在效事实（open+sealed）；退回单一入口：未钉冲销作废事实，已钉退回落到其它业务日的负向事实。</p>
+    <p class="msg" v-if="!err">合计只认在效事实（open+sealed，含负向退回行）；退回单一入口：未钉冲销作废事实，已钉退回落到其它业务日的负向事实，原批指纹永不回改。</p>
     <p class="msg err" v-if="err">{{ err }}</p>
   </div>
 </template>

@@ -31,6 +31,11 @@ def batches():
     return svc.list_batches()
 
 
+@router.get("/batches/{batch_id}")
+def batch_detail(batch_id: int):
+    return svc.batch_detail(batch_id)
+
+
 @router.get("/returns/preview")
 def returns_preview(business_day: str | None = None):
     return svc.preview_returns(business_day)

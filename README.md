@@ -5,6 +5,8 @@
 本地：
 - API: `cd backend && python -m uvicorn app.main:app --port 10800`
 - Web: `cd frontend && npm install && npm run dev`（5800）
+- 回归：`cd backend && python -m pytest tests/`（负向入湖链路四场景：改脏原批合计 /
+  事件有事实无 / 半截改脏原批 / 目标日预览缺负向行）
 
 ## 核销后退回：全局互斥的两条策略（只走一条）
 
@@ -19,5 +21,10 @@
 
 同源约束：退回入口、事实状态、事件湖、钉扎写闸、批次现行合计同出一源——
 `POST /api/events` 只接受 issue/redeem，void/return 一律走退回入口；
-仪表盘/预览合计只认在效事实（open+sealed），voided 不计入。
-禁止「页显示已退但 sealed 合计未变且事实仍 sealed」的撕裂态；禁止无审计硬删事件行。
+仪表盘/预览合计只认在效事实（open+sealed，含负向 return 行），voided 不计入。
+原批只读闸：钉时指纹 = 批头笔数/合计 与本批 sealed 明细重算一致，且每条 sealed 事实金额
+锚定其源事件金额（事件湖只增不改）；负向写路径在提交前自检「原批指纹未动 + 负向事实链
+齐套」，任一未对齐整事务回滚，回执不得成功。`GET /api/batches` 列表与
+`GET /api/batches/{id}` 原批对照（钉时明细 + 关联退回链）均实时重算指纹与退回关联。
+禁止「页显示已退但 sealed 合计未变且事实仍 sealed」的撕裂态；禁止无审计硬删事件行；
+禁止「回执成功却改脏原批」与「有负向事件无负向事实仍当成功」。

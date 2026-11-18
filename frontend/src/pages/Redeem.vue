@@ -34,7 +34,7 @@ async function doReturn() {
     const r = await api.returnRedeem(body)
     retMsg.value = r.policy === 'void'
       ? `未钉冲销：事实 #${r.fact_id} 已作废（void 事件 #${r.event_id}，${r.amount}），预览合计同步减少`
-      : `已钉退回成功：事件 #${r.event_id} → ${r.business_day}；事实 #${r.fact_id ?? '—'}；原批 #${r.original_batch_id ?? '—'} 已同步合计`
+      : `已钉退回成功：事件 #${r.event_id} 与负向事实 #${r.fact_id} 齐套落账 ${r.business_day}（open，待钉）；原批 #${r.original_batch_id ?? '—'} 指纹未回改，可在批次列表点开对照`
     retForm.value.coupon_code = ''
     await load()
   } catch (e) { retErr.value = e.message }

@@ -126,6 +126,11 @@ button.ghost {
 .tag.warn { background: rgba(196, 59, 122, 0.12); color: var(--ticket); }
 .tag.muted { background: rgba(107, 122, 146, 0.14); color: var(--muted); }
 .tag.bad { background: rgba(196, 92, 92, 0.12); color: var(--bad); }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: rgba(36, 56, 100, 0.05); }
+tr.clickable.active td { background: rgba(36, 56, 100, 0.09); }
+.panel h3 { margin: 0.2rem 0 0.6rem; font-size: 1rem; color: var(--navy); }
+.panel h4 { margin: 0.9rem 0 0.4rem; font-size: 0.9rem; color: var(--navy); }
 
 @media (max-width: 720px) {
   .chip { min-width: 0; flex: 1 1 40%; border-radius: 0.75rem; }

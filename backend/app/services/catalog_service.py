@@ -19,7 +19,7 @@ def dashboard() -> dict[str, Any]:
         total = round(sum(float(f["amount"]) for f in live), 2)
         events = event_repo.list_events(conn, day)
         from app.services import return_side
-        batches = return_side.mask_batches(conn, batch_repo.list_batches(conn))
+        batches = batch_repo.list_batches(conn)
         sealed_today = fact_repo.day_is_sealed(conn, day)
         hint = return_side.dashboard_return_hint(conn, day)
         return {
@@ -33,7 +33,9 @@ def dashboard() -> dict[str, Any]:
             "batch_count": len(batches),
             "day_sealed": sealed_today,
             "return_open_count": hint["return_open_count"],
+            "return_open_total": hint["return_open_total"],
             "original_batch_intact": hint["original_batch_intact"],
+            "return_chain_aligned": hint["return_chain_aligned"],
         }
     finally:
         conn.close()

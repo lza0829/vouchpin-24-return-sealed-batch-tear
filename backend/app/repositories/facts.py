@@ -82,3 +82,26 @@ def day_is_sealed(conn: sqlite3.Connection, business_day: str) -> bool:
         (business_day,),
     ).fetchone()
     return row is not None
+
+
+def facts_for_batch(conn: sqlite3.Connection, batch_id: int) -> list[dict[str, Any]]:
+    """原批明细：本批钉住的全部事实行（钉时快照的现行凭证）。"""
+    rows = conn.execute(
+        "SELECT * FROM redeem_facts WHERE batch_id=? ORDER BY id",
+        (int(batch_id),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def returns_for_batch(conn: sqlite3.Connection, batch_id: int) -> list[dict[str, Any]]:
+    """原批对照的负向链：ref 指向本批事实的全部退回事实（含已冲销，审计不删行）。"""
+    rows = conn.execute(
+        """
+        SELECT rf.* FROM redeem_facts rf
+        JOIN redeem_facts src ON src.id = rf.ref_fact_id
+        WHERE rf.kind='return' AND src.batch_id=?
+        ORDER BY rf.id
+        """,
+        (int(batch_id),),
+    ).fetchall()
+    return [dict(r) for r in rows]
